@@ -1,0 +1,1080 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>CyberRange-as-a-Service — SQL Injection & WAF Simulator</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Syne:wght@400;600;700;800&display=swap');
+
+  :root {
+    --bg: #0a0c10;
+    --surface: #0f1218;
+    --surface2: #161b24;
+    --surface3: #1c2333;
+    --border: #2a3245;
+    --border2: #3a4560;
+    --green: #00ff88;
+    --green-dim: #00c868;
+    --red: #ff3a5c;
+    --red-dim: #cc2d47;
+    --amber: #ffa827;
+    --blue: #4a9eff;
+    --cyan: #00d4ff;
+    --purple: #b060ff;
+    --text: #e0e8f5;
+    --text-dim: #7a8aa0;
+    --text-muted: #455060;
+    --mono: 'JetBrains Mono', monospace;
+    --sans: 'Syne', sans-serif;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--mono);
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* HEADER */
+  .header {
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    padding: 12px 24px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    position: sticky;
+    top: 0;
+    z-index: 100;
+  }
+  .logo {
+    font-family: var(--sans);
+    font-weight: 800;
+    font-size: 16px;
+    letter-spacing: 0.04em;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .logo-badge {
+    background: var(--green);
+    color: #000;
+    font-size: 9px;
+    font-weight: 700;
+    padding: 2px 7px;
+    border-radius: 3px;
+    letter-spacing: 0.12em;
+    font-family: var(--mono);
+  }
+  .header-status {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    font-size: 11px;
+    color: var(--text-dim);
+  }
+  .status-dot {
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    background: var(--green);
+    display: inline-block;
+    margin-right: 5px;
+    animation: pulse 2s infinite;
+  }
+  @keyframes pulse {
+    0%,100%{opacity:1} 50%{opacity:0.4}
+  }
+
+  /* LAYOUT */
+  .layout {
+    display: grid;
+    grid-template-columns: 280px 1fr 320px;
+    height: calc(100vh - 49px);
+    gap: 0;
+  }
+
+  /* PANELS */
+  .panel {
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  .panel:last-child { border-right: none; border-left: 1px solid var(--border); }
+
+  .panel-header {
+    padding: 10px 14px;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.14em;
+    color: var(--text-muted);
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+    text-transform: uppercase;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-shrink: 0;
+  }
+  .panel-body { overflow-y: auto; flex: 1; padding: 12px; }
+
+  /* ATTACK PANEL */
+  .attack-list { display: flex; flex-direction: column; gap: 6px; }
+  .attack-item {
+    padding: 10px 12px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.15s;
+    background: var(--surface2);
+    position: relative;
+    overflow: hidden;
+  }
+  .attack-item::before {
+    content:'';
+    position: absolute;
+    left: 0; top: 0; bottom: 0;
+    width: 3px;
+    background: var(--text-muted);
+    transition: background 0.15s;
+  }
+  .attack-item:hover { border-color: var(--border2); background: var(--surface3); }
+  .attack-item:hover::before { background: var(--blue); }
+  .attack-item.selected { border-color: var(--blue); background: rgba(74,158,255,0.07); }
+  .attack-item.selected::before { background: var(--blue); }
+
+  .attack-name {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text);
+    margin-bottom: 3px;
+  }
+  .attack-desc { font-size: 10px; color: var(--text-dim); line-height: 1.5; }
+  .severity-badge {
+    font-size: 9px;
+    font-weight: 600;
+    padding: 2px 7px;
+    border-radius: 3px;
+    letter-spacing: 0.08em;
+    float: right;
+    margin-top: -2px;
+  }
+  .sev-critical { background: rgba(255,58,92,0.2); color: var(--red); }
+  .sev-high { background: rgba(255,168,39,0.2); color: var(--amber); }
+  .sev-medium { background: rgba(74,158,255,0.2); color: var(--blue); }
+
+  /* CENTER PANEL */
+  .center-panel { display: flex; flex-direction: column; overflow: hidden; }
+
+  /* TOPOLOGY */
+  .topology-bar {
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    padding: 12px 20px;
+    display: flex;
+    align-items: center;
+    gap: 0;
+    flex-shrink: 0;
+  }
+  .topo-node {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    min-width: 80px;
+  }
+  .topo-icon {
+    width: 44px; height: 44px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: var(--surface2);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 20px;
+    position: relative;
+    transition: border-color 0.3s;
+  }
+  .topo-icon.active { border-color: var(--green); box-shadow: 0 0 12px rgba(0,255,136,0.15); }
+  .topo-icon.attacking { border-color: var(--red); box-shadow: 0 0 12px rgba(255,58,92,0.2); }
+  .topo-icon.blocked { border-color: var(--amber); box-shadow: 0 0 12px rgba(255,168,39,0.15); }
+  .topo-label { font-size: 9px; color: var(--text-dim); letter-spacing: 0.06em; }
+  .topo-arrow {
+    flex: 1;
+    height: 2px;
+    background: var(--border);
+    position: relative;
+    overflow: hidden;
+  }
+  .topo-arrow.active { background: var(--border2); }
+  .topo-arrow .packet {
+    position: absolute;
+    width: 20px; height: 2px;
+    background: var(--blue);
+    animation: flow 1s linear infinite;
+    display: none;
+  }
+  .topo-arrow.attack .packet { background: var(--red); display: block; }
+  .topo-arrow.blocked-arrow .packet { background: var(--amber); display: block; animation: flow 0.6s linear infinite; }
+  .topo-arrow.pass .packet { background: var(--green); display: block; }
+  @keyframes flow { from{left:-20px} to{left:100%} }
+
+  /* QUERY EDITOR */
+  .query-section {
+    padding: 14px 16px;
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+    background: var(--surface2);
+  }
+  .query-label {
+    font-size: 9px;
+    color: var(--text-muted);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    margin-bottom: 8px;
+  }
+  .query-input {
+    width: 100%;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 10px 14px;
+    font-family: var(--mono);
+    font-size: 13px;
+    color: var(--text);
+    resize: vertical;
+    min-height: 64px;
+    outline: none;
+    transition: border-color 0.2s;
+  }
+  .query-input:focus { border-color: var(--border2); }
+  .query-input.injected { border-color: var(--red); color: var(--red); }
+  .query-input.safe { border-color: var(--green); }
+
+  .btn-row { display: flex; gap: 8px; margin-top: 10px; }
+  .btn {
+    padding: 7px 16px;
+    border-radius: 5px;
+    font-family: var(--mono);
+    font-size: 11px;
+    font-weight: 600;
+    cursor: pointer;
+    border: 1px solid var(--border);
+    transition: all 0.15s;
+    letter-spacing: 0.04em;
+  }
+  .btn-attack {
+    background: rgba(255,58,92,0.12);
+    color: var(--red);
+    border-color: rgba(255,58,92,0.3);
+  }
+  .btn-attack:hover { background: rgba(255,58,92,0.22); border-color: var(--red); }
+  .btn-defend {
+    background: rgba(0,255,136,0.08);
+    color: var(--green);
+    border-color: rgba(0,255,136,0.25);
+  }
+  .btn-defend:hover { background: rgba(0,255,136,0.15); border-color: var(--green); }
+  .btn-clear {
+    background: transparent;
+    color: var(--text-dim);
+    margin-left: auto;
+  }
+  .btn-clear:hover { background: var(--surface3); }
+
+  /* WAF CONFIG */
+  .waf-section {
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+    background: var(--surface);
+  }
+  .waf-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 8px; }
+  .waf-rule {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 10px;
+    color: var(--text-dim);
+    padding: 6px 10px;
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    background: var(--surface2);
+    cursor: pointer;
+    transition: all 0.15s;
+    user-select: none;
+  }
+  .waf-rule.enabled { color: var(--green); border-color: rgba(0,255,136,0.25); background: rgba(0,255,136,0.05); }
+  .waf-rule .toggle {
+    width: 28px; height: 14px;
+    border-radius: 7px;
+    background: var(--border);
+    position: relative;
+    flex-shrink: 0;
+    transition: background 0.2s;
+  }
+  .waf-rule.enabled .toggle { background: var(--green-dim); }
+  .waf-rule .toggle::after {
+    content:'';
+    position: absolute;
+    width: 10px; height: 10px;
+    border-radius: 50%;
+    background: var(--text-muted);
+    top: 2px; left: 2px;
+    transition: all 0.2s;
+  }
+  .waf-rule.enabled .toggle::after { left: 16px; background: #fff; }
+
+  /* TERMINAL / LOG */
+  .terminal {
+    flex: 1;
+    overflow-y: auto;
+    padding: 12px 14px;
+    font-size: 11px;
+    line-height: 1.7;
+    background: var(--bg);
+  }
+  .log-entry { margin-bottom: 2px; display: flex; gap: 10px; }
+  .log-time { color: var(--text-muted); flex-shrink: 0; }
+  .log-msg { flex: 1; }
+  .log-msg.info { color: var(--text-dim); }
+  .log-msg.attack { color: var(--red); }
+  .log-msg.warn { color: var(--amber); }
+  .log-msg.success { color: var(--green); }
+  .log-msg.blocked { color: var(--purple); }
+  .log-msg.system { color: var(--cyan); }
+  .log-msg.query { color: var(--blue); font-style: italic; }
+
+  /* DB RESULT PANEL */
+  .db-result {
+    background: var(--surface2);
+    border-top: 1px solid var(--border);
+    padding: 10px 14px;
+    flex-shrink: 0;
+    min-height: 120px;
+    max-height: 200px;
+    overflow-y: auto;
+  }
+  .db-header {
+    font-size: 9px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    margin-bottom: 8px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .db-table {
+    width: 100%;
+    font-size: 10px;
+    border-collapse: collapse;
+  }
+  .db-table th {
+    text-align: left;
+    padding: 3px 8px;
+    color: var(--cyan);
+    border-bottom: 1px solid var(--border);
+    font-weight: 600;
+    font-size: 9px;
+    letter-spacing: 0.06em;
+  }
+  .db-table td {
+    padding: 3px 8px;
+    border-bottom: 1px solid rgba(42,50,69,0.5);
+    color: var(--text);
+  }
+  .db-table tr:last-child td { border-bottom: none; }
+  .db-table tr.exfil td { color: var(--red); }
+  .db-empty { color: var(--text-muted); font-size: 11px; text-align: center; padding: 16px; }
+
+  /* RIGHT PANEL */
+  .stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 14px; }
+  .stat-card {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 10px 12px;
+  }
+  .stat-label { font-size: 9px; color: var(--text-muted); letter-spacing: 0.08em; text-transform: uppercase; margin-bottom: 4px; }
+  .stat-value { font-size: 22px; font-weight: 700; font-family: var(--sans); }
+  .stat-value.red { color: var(--red); }
+  .stat-value.green { color: var(--green); }
+  .stat-value.amber { color: var(--amber); }
+  .stat-value.blue { color: var(--blue); }
+
+  /* THREAT METER */
+  .threat-meter { margin-bottom: 14px; }
+  .threat-label {
+    display: flex;
+    justify-content: space-between;
+    font-size: 10px;
+    color: var(--text-dim);
+    margin-bottom: 6px;
+  }
+  .meter-track {
+    height: 6px;
+    background: var(--surface3);
+    border-radius: 3px;
+    overflow: hidden;
+  }
+  .meter-fill {
+    height: 100%;
+    border-radius: 3px;
+    transition: width 0.4s ease, background 0.4s;
+    background: var(--green);
+  }
+
+  /* PAYLOAD ANATOMY */
+  .anatomy-section { margin-bottom: 14px; }
+  .anatomy-title { font-size: 9px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 8px; }
+  .anatomy-box {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 10px 12px;
+    font-size: 11px;
+    line-height: 1.8;
+  }
+  .part-normal { color: var(--green); }
+  .part-inject { color: var(--red); text-decoration: underline; text-decoration-style: wavy; text-decoration-color: rgba(255,58,92,0.5); }
+  .part-comment { color: var(--text-muted); font-style: italic; }
+
+  /* RULE MATCHES */
+  .rule-match-list { display: flex; flex-direction: column; gap: 6px; }
+  .rule-match {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 7px 10px;
+    border-radius: 5px;
+    font-size: 10px;
+    border: 1px solid transparent;
+  }
+  .rule-match.triggered { background: rgba(255,58,92,0.08); border-color: rgba(255,58,92,0.2); color: var(--red); }
+  .rule-match.passed { background: rgba(0,255,136,0.05); border-color: rgba(0,255,136,0.15); color: var(--green-dim); }
+  .rule-match.skipped { background: var(--surface2); color: var(--text-muted); }
+  .rule-icon { font-size: 12px; flex-shrink: 0; margin-top: 1px; }
+
+  /* SCROLLBAR */
+  ::-webkit-scrollbar { width: 4px; height: 4px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
+
+  /* ANIMATION */
+  @keyframes slideIn {
+    from { opacity: 0; transform: translateX(-6px); }
+    to { opacity: 1; transform: translateX(0); }
+  }
+  .log-entry { animation: slideIn 0.2s ease; }
+
+  .section-divider {
+    font-size: 9px;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    margin: 14px 0 8px;
+    padding-bottom: 5px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  /* SCORE BADGE */
+  .score-ring {
+    width: 60px; height: 60px;
+    border-radius: 50%;
+    border: 3px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 16px;
+    font-weight: 700;
+    font-family: var(--sans);
+    margin: 0 auto 10px;
+    transition: all 0.3s;
+  }
+</style>
+</head>
+<body>
+
+<header class="header">
+  <div class="logo">
+    <span>⚔</span>
+    <span>CyberRange<span style="color:var(--text-muted)">::</span>SQLi-WAF</span>
+    <span class="logo-badge">CRaaS v2.1</span>
+  </div>
+  <div class="header-status">
+    <span><span class="status-dot"></span>Range Online</span>
+    <span style="color:var(--border2)">|</span>
+    <span>Session: <span style="color:var(--blue)" id="session-id">0x4F2A</span></span>
+    <span style="color:var(--border2)">|</span>
+    <span>Target: <span style="color:var(--amber)">vuln-db-01.range.local</span></span>
+  </div>
+</header>
+
+<div class="layout">
+
+  <!-- LEFT PANEL: Attack Vectors -->
+  <div class="panel">
+    <div class="panel-header">
+      <span>Attack Vectors</span>
+      <span style="color:var(--red)">● ATTACKER</span>
+    </div>
+    <div class="panel-body">
+      <div class="attack-list" id="attack-list"></div>
+    </div>
+  </div>
+
+  <!-- CENTER PANEL -->
+  <div class="center-panel">
+
+    <!-- Network Topology -->
+    <div class="topology-bar">
+      <div class="topo-node">
+        <div class="topo-icon attacking" id="topo-attacker">💻</div>
+        <div class="topo-label">ATTACKER</div>
+      </div>
+      <div class="topo-arrow" id="arrow1">
+        <div class="packet"></div>
+      </div>
+      <div class="topo-node">
+        <div class="topo-icon" id="topo-waf">🛡</div>
+        <div class="topo-label">WAF</div>
+      </div>
+      <div class="topo-arrow" id="arrow2">
+        <div class="packet"></div>
+      </div>
+      <div class="topo-node">
+        <div class="topo-icon active" id="topo-web">🌐</div>
+        <div class="topo-label">WEB APP</div>
+      </div>
+      <div class="topo-arrow" id="arrow3">
+        <div class="packet"></div>
+      </div>
+      <div class="topo-node">
+        <div class="topo-icon active" id="topo-db">🗄</div>
+        <div class="topo-label">DATABASE</div>
+      </div>
+    </div>
+
+    <!-- Query Editor -->
+    <div class="query-section">
+      <div class="query-label">Injected HTTP Request / Payload</div>
+      <textarea class="query-input" id="query-input" rows="3" placeholder="Select an attack vector or type a custom payload..."></textarea>
+      <div class="btn-row">
+        <button class="btn btn-attack" onclick="runAttack()">▶ Launch Attack</button>
+        <button class="btn btn-defend" onclick="runDefend()">🛡 Enable WAF + Retry</button>
+        <button class="btn btn-clear" onclick="clearAll()">✕ Clear</button>
+      </div>
+    </div>
+
+    <!-- WAF Rules -->
+    <div class="waf-section">
+      <div class="query-label" style="margin-bottom:0">WAF Rules <span style="color:var(--text-muted)">(click to toggle)</span></div>
+      <div class="waf-grid" id="waf-rules"></div>
+    </div>
+
+    <!-- Terminal Log -->
+    <div class="terminal" id="terminal">
+      <div class="log-entry"><span class="log-time">00:00:00</span><span class="log-msg system">[SYS] CyberRange-as-a-Service booted. SQLi + WAF module loaded.</span></div>
+      <div class="log-entry"><span class="log-time">00:00:00</span><span class="log-msg info">[INF] Target database: vuln-db-01 | Schema: users, products, admin_creds</span></div>
+      <div class="log-entry"><span class="log-time">00:00:01</span><span class="log-msg info">[INF] Select an attack vector from the left panel to begin simulation.</span></div>
+    </div>
+
+    <!-- DB Result -->
+    <div class="db-result" id="db-result">
+      <div class="db-header">📊 Database Response</div>
+      <div class="db-empty">No query executed yet.</div>
+    </div>
+
+  </div>
+
+  <!-- RIGHT PANEL: Analysis -->
+  <div class="panel">
+    <div class="panel-header">
+      <span>Live Analysis</span>
+      <span style="color:var(--green)">● DEFENDER</span>
+    </div>
+    <div class="panel-body">
+
+      <!-- Score -->
+      <div style="text-align:center;padding:10px 0 6px">
+        <div class="score-ring" id="score-ring">--</div>
+        <div style="font-size:10px;color:var(--text-muted)">Threat Score</div>
+      </div>
+
+      <div class="stats-grid">
+        <div class="stat-card">
+          <div class="stat-label">Attacks</div>
+          <div class="stat-value red" id="stat-attacks">0</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Blocked</div>
+          <div class="stat-value green" id="stat-blocked">0</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Breached</div>
+          <div class="stat-value amber" id="stat-breached">0</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Safe Req</div>
+          <div class="stat-value blue" id="stat-safe">0</div>
+        </div>
+      </div>
+
+      <!-- Threat Meter -->
+      <div class="threat-meter">
+        <div class="threat-label"><span>Risk Level</span><span id="threat-pct">0%</span></div>
+        <div class="meter-track"><div class="meter-fill" id="meter-fill" style="width:0%"></div></div>
+      </div>
+
+      <!-- Payload Anatomy -->
+      <div class="section-divider">Payload Anatomy</div>
+      <div class="anatomy-section">
+        <div class="anatomy-box" id="anatomy-box">
+          <span style="color:var(--text-muted)">Select an attack to dissect payload...</span>
+        </div>
+      </div>
+
+      <!-- WAF Rule Evaluation -->
+      <div class="section-divider">WAF Rule Evaluation</div>
+      <div class="rule-match-list" id="rule-eval"></div>
+
+    </div>
+  </div>
+
+</div>
+
+<script>
+const ATTACKS = [
+  {
+    id: 'auth_bypass',
+    name: 'Auth Bypass',
+    severity: 'critical',
+    desc: "Classic ' OR '1'='1 login bypass",
+    payload: "' OR '1'='1' --",
+    url: "POST /login | username=' OR '1'='1' --&password=anything",
+    anatomy: [
+      {text:"' ", cls:"part-inject", label:"Break string"},
+      {text:"OR '1'='1' ", cls:"part-inject", label:"Always-true condition"},
+      {text:"--", cls:"part-comment", label:"Comment rest"}
+    ],
+    sqlGenerated: "SELECT * FROM users WHERE username='' OR '1'='1' --' AND password='...'",
+    wafRules: ['sqli_keywords','comment_sequences','or_patterns'],
+    dbResult: {
+      cols: ['id','username','email','role'],
+      rows: [
+        ['1','admin','admin@corp.com','SUPERADMIN'],
+        ['2','jsmith','j.smith@corp.com','user'],
+        ['3','hr_mgr','hr@corp.com','manager'],
+      ],
+      exfil: true,
+      msg: 'BREACH: Returned all 847 users. Admin account exposed.'
+    }
+  },
+  {
+    id: 'union_select',
+    name: 'UNION SELECT Dump',
+    severity: 'critical',
+    desc: 'Exfiltrate schema via UNION injection',
+    payload: "1 UNION SELECT table_name,column_name,3,4 FROM information_schema.columns--",
+    url: "GET /products?id=1 UNION SELECT table_name,column_name,3,4 FROM information_schema.columns--",
+    anatomy: [
+      {text:"1 ", cls:"part-normal"},
+      {text:"UNION SELECT ", cls:"part-inject", label:"Merge with attacker query"},
+      {text:"table_name,column_name,3,4 ", cls:"part-inject"},
+      {text:"FROM information_schema.columns", cls:"part-inject", label:"Dump DB schema"},
+      {text:"--", cls:"part-comment", label:"Suppress errors"}
+    ],
+    sqlGenerated: "SELECT id,name,price,stock FROM products WHERE id=1 UNION SELECT table_name,column_name,3,4 FROM information_schema.columns--",
+    wafRules: ['union_select','sqli_keywords','comment_sequences'],
+    dbResult: {
+      cols: ['table_name','column_name','—','—'],
+      rows: [
+        ['users','id','3','4'],
+        ['users','password_hash','3','4'],
+        ['admin_creds','api_key','3','4'],
+        ['admin_creds','secret_token','3','4'],
+      ],
+      exfil: true,
+      msg: 'BREACH: Full schema exposed. Sensitive columns identified.'
+    }
+  },
+  {
+    id: 'blind_bool',
+    name: 'Blind Boolean',
+    severity: 'high',
+    desc: 'Infer data via true/false responses',
+    payload: "1 AND 1=1-- (true) / 1 AND 1=2-- (false)",
+    url: "GET /item?id=1 AND SUBSTRING(username,1,1)='a'--",
+    anatomy: [
+      {text:"1 ", cls:"part-normal"},
+      {text:"AND SUBSTRING(username,1,1)='a'", cls:"part-inject", label:"Extract 1 char at a time"},
+      {text:"--", cls:"part-comment"}
+    ],
+    sqlGenerated: "SELECT * FROM items WHERE id=1 AND SUBSTRING(username,1,1)='a'--",
+    wafRules: ['sqli_keywords','comment_sequences','function_abuse'],
+    dbResult: {
+      cols: ['id','name','price'],
+      rows: [['1','Widget Pro','$29.99']],
+      exfil: false,
+      msg: 'Response differs on true/false. Attacker is brute-forcing field values character by character.'
+    }
+  },
+  {
+    id: 'time_based',
+    name: 'Time-Based Blind',
+    severity: 'high',
+    desc: 'Use SLEEP() to infer data via delays',
+    payload: "1; IF(1=1, SLEEP(5), 0)--",
+    url: "GET /search?q=test'; IF(1=1,SLEEP(5),0)--",
+    anatomy: [
+      {text:"test", cls:"part-normal"},
+      {text:"'; ", cls:"part-inject", label:"Terminate + chain"},
+      {text:"IF(1=1, SLEEP(5), 0)", cls:"part-inject", label:"5s delay = condition true"},
+      {text:"--", cls:"part-comment"}
+    ],
+    sqlGenerated: "SELECT * FROM items WHERE name LIKE '%test'; IF(1=1,SLEEP(5),0)--%'",
+    wafRules: ['sqli_keywords','comment_sequences','function_abuse'],
+    dbResult: {
+      cols: ['status','delay_ms'],
+      rows: [['DELAYED','5043']],
+      exfil: false,
+      msg: 'INFO: 5 second response delay detected. Blind time-based attack confirmed.'
+    }
+  },
+  {
+    id: 'stacked',
+    name: 'Stacked Queries',
+    severity: 'critical',
+    desc: 'Drop tables via query stacking',
+    payload: "1; DROP TABLE users; --",
+    url: "POST /update | id=1; DROP TABLE users; --",
+    anatomy: [
+      {text:"1", cls:"part-normal"},
+      {text:"; ", cls:"part-inject", label:"End first query"},
+      {text:"DROP TABLE users", cls:"part-inject", label:"DESTRUCTIVE: delete table"},
+      {text:"; --", cls:"part-comment"}
+    ],
+    sqlGenerated: "UPDATE log SET viewed=1 WHERE id=1; DROP TABLE users; --",
+    wafRules: ['sqli_keywords','comment_sequences','ddl_statements'],
+    dbResult: {
+      cols: ['status','affected'],
+      rows: [['TABLE DROPPED','users (847 rows)']],
+      exfil: true,
+      msg: 'CATASTROPHIC: users table destroyed. All user data lost.'
+    }
+  },
+  {
+    id: 'second_order',
+    name: 'Second-Order Injection',
+    severity: 'high',
+    desc: 'Payload stored then executed later',
+    payload: "admin'--  (stored in username field)",
+    url: "POST /register | username=admin'--&password=hacked",
+    anatomy: [
+      {text:"admin", cls:"part-normal"},
+      {text:"'--", cls:"part-inject", label:"Stored; activates on next query"}
+    ],
+    sqlGenerated: "UPDATE users SET password='hacked' WHERE username='admin'--'",
+    wafRules: ['sqli_keywords','comment_sequences'],
+    dbResult: {
+      cols: ['action','target','result'],
+      rows: [["PASSWORD RESET","admin","SUCCESS"]],
+      exfil: true,
+      msg: 'BREACH: Admin password changed via stored payload execution.'
+    }
+  },
+  {
+    id: 'error_based',
+    name: 'Error-Based Exfil',
+    severity: 'medium',
+    desc: 'Extract data through DB error messages',
+    payload: "1 AND extractvalue(1,concat(0x7e,version()))--",
+    url: "GET /product?id=1 AND extractvalue(1,concat(0x7e,version()))--",
+    anatomy: [
+      {text:"1 ", cls:"part-normal"},
+      {text:"AND extractvalue(", cls:"part-inject"},
+      {text:"1,concat(0x7e,version())", cls:"part-inject", label:"DB version in error msg"},
+      {text:")--", cls:"part-comment"}
+    ],
+    sqlGenerated: "SELECT * FROM products WHERE id=1 AND extractvalue(1,concat(0x7e,version()))--",
+    wafRules: ['sqli_keywords','comment_sequences','function_abuse'],
+    dbResult: {
+      cols: ['error_output'],
+      rows: [["XPATH syntax error: '~8.0.32-MySQL Community Server'"]],
+      exfil: false,
+      msg: 'INFO: DB version leaked via error. Attacker maps target fingerprint.'
+    }
+  },
+];
+
+const WAF_RULES = [
+  {id:'sqli_keywords', label:"SQL Keywords", desc:"Blocks SELECT, INSERT, DROP, UNION etc.", patterns:[/\b(select|union|insert|update|delete|drop|truncate|exec|execute|xp_)\b/i]},
+  {id:'comment_sequences', label:"Comment Sequences", desc:"Blocks --, #, /**/ comment injections", patterns:[/--/, /\/\*.*\*\//, /#/]},
+  {id:'or_patterns', label:"OR/AND Logic", desc:"Detects always-true logic conditions", patterns:[/\bOR\b.*[=<>]/i, /\bAND\b.*[=<>]/i]},
+  {id:'union_select', label:"UNION SELECT", desc:"Blocks UNION-based exfiltration", patterns:[/UNION\s+SELECT/i]},
+  {id:'function_abuse', label:"Function Abuse", desc:"Blocks SLEEP, SUBSTRING, IF, BENCHMARK", patterns:[/\b(sleep|substring|benchmark|extractvalue|updatexml|if)\s*\(/i]},
+  {id:'ddl_statements', label:"DDL Statements", desc:"Blocks DROP, CREATE, ALTER", patterns:[/\b(drop|create|alter|truncate)\s+\w+/i]},
+  {id:'quote_escape', label:"Quote Escaping", desc:"Sanitizes single/double quote injections", patterns:[/'/]},
+  {id:'hex_encode', label:"Hex Encoding", desc:"Detects 0x hex-encoded payloads", patterns:[/0x[0-9a-f]+/i]},
+];
+
+let state = {
+  attacks: 0, blocked: 0, breached: 0, safe: 0,
+  wafEnabled: {},
+  selectedAttack: null
+};
+
+WAF_RULES.forEach(r => state.wafEnabled[r.id] = false);
+
+function init() {
+  document.getElementById('session-id').textContent = '0x' + Math.floor(Math.random()*0xFFFF).toString(16).toUpperCase().padStart(4,'0');
+  renderAttacks();
+  renderWAFRules();
+  updateStats();
+}
+
+function renderAttacks() {
+  const el = document.getElementById('attack-list');
+  el.innerHTML = ATTACKS.map(a => `
+    <div class="attack-item ${state.selectedAttack?.id===a.id?'selected':''}" onclick="selectAttack('${a.id}')">
+      <span class="severity-badge sev-${a.severity}">${a.severity.toUpperCase()}</span>
+      <div class="attack-name">${a.name}</div>
+      <div class="attack-desc">${a.desc}</div>
+    </div>
+  `).join('');
+}
+
+function renderWAFRules() {
+  const el = document.getElementById('waf-rules');
+  el.innerHTML = WAF_RULES.map(r => `
+    <div class="waf-rule ${state.wafEnabled[r.id]?'enabled':''}" onclick="toggleWAF('${r.id}')">
+      <div class="toggle"></div>
+      <span>${r.label}</span>
+    </div>
+  `).join('');
+}
+
+function toggleWAF(id) {
+  state.wafEnabled[id] = !state.wafEnabled[id];
+  renderWAFRules();
+  log('info', `[WAF] Rule "${WAF_RULES.find(r=>r.id===id).label}" ${state.wafEnabled[id]?'ENABLED':'DISABLED'}`);
+}
+
+function selectAttack(id) {
+  state.selectedAttack = ATTACKS.find(a=>a.id===id);
+  renderAttacks();
+  document.getElementById('query-input').value = state.selectedAttack.url;
+  document.getElementById('query-input').className = 'query-input';
+  renderAnatomy(state.selectedAttack);
+  clearEval();
+  log('warn', `[ATK] Attack vector loaded: ${state.selectedAttack.name}`);
+  log('query', `[REQ] ${state.selectedAttack.url}`);
+  setTopology('idle');
+}
+
+function renderAnatomy(atk) {
+  const box = document.getElementById('anatomy-box');
+  const parts = atk.anatomy.map(p =>
+    `<span class="${p.cls}" title="${p.label||''}">${p.text}</span>`
+  ).join('');
+  box.innerHTML = `<div style="margin-bottom:6px;font-size:9px;color:var(--text-muted)">Parsed Payload:</div>${parts}<div style="margin-top:8px;border-top:1px solid var(--border);padding-top:6px;font-size:10px;color:var(--text-dim)">Generated SQL:<br><span style="color:var(--amber)">${atk.sqlGenerated}</span></div>`;
+}
+
+function clearEval() {
+  document.getElementById('rule-eval').innerHTML = '';
+}
+
+function getTime() {
+  const d = new Date();
+  return `${d.getHours().toString().padStart(2,'0')}:${d.getMinutes().toString().padStart(2,'0')}:${d.getSeconds().toString().padStart(2,'0')}`;
+}
+
+function log(type, msg) {
+  const term = document.getElementById('terminal');
+  const entry = document.createElement('div');
+  entry.className = 'log-entry';
+  entry.innerHTML = `<span class="log-time">${getTime()}</span><span class="log-msg ${type}">${msg}</span>`;
+  term.appendChild(entry);
+  term.scrollTop = term.scrollHeight;
+}
+
+function setTopology(state_str, blocked) {
+  const a1 = document.getElementById('arrow1');
+  const a2 = document.getElementById('arrow2');
+  const a3 = document.getElementById('arrow3');
+  const waf = document.getElementById('topo-waf');
+  const web = document.getElementById('topo-web');
+  const db = document.getElementById('topo-db');
+
+  [a1,a2,a3].forEach(a => a.className = 'topo-arrow');
+  waf.className = 'topo-icon';
+  web.className = 'topo-icon active';
+  db.className = 'topo-icon active';
+
+  if (state_str === 'attacking') {
+    a1.className = 'topo-arrow attack';
+    if (blocked) {
+      a2.className = 'topo-arrow blocked-arrow';
+      waf.className = 'topo-icon blocked';
+    } else {
+      a2.className = 'topo-arrow attack';
+      a3.className = 'topo-arrow attack';
+      waf.className = 'topo-icon active';
+    }
+  } else if (state_str === 'pass') {
+    a1.className = 'topo-arrow pass';
+    a2.className = 'topo-arrow pass';
+    a3.className = 'topo-arrow pass';
+  }
+}
+
+function checkWAF(atk) {
+  const payload = atk.payload + ' ' + atk.url;
+  const results = [];
+  let anyTriggered = false;
+
+  atk.wafRules.forEach(ruleId => {
+    const rule = WAF_RULES.find(r => r.id === ruleId);
+    if (!rule) return;
+    const enabled = state.wafEnabled[ruleId];
+    let matched = rule.patterns.some(p => p.test(payload));
+    results.push({rule, enabled, matched});
+    if (enabled && matched) anyTriggered = true;
+  });
+
+  // also check enabled rules not in attack's list
+  WAF_RULES.forEach(rule => {
+    if (!atk.wafRules.includes(rule.id) && state.wafEnabled[rule.id]) {
+      let matched = rule.patterns.some(p => p.test(payload));
+      if (matched) { results.push({rule, enabled:true, matched}); anyTriggered = true; }
+    }
+  });
+
+  return {blocked: anyTriggered, results};
+}
+
+function renderEval(results, blocked) {
+  const el = document.getElementById('rule-eval');
+  el.innerHTML = results.map(r => {
+    let cls, icon, label;
+    if (r.matched && r.enabled) { cls='triggered'; icon='✕'; label='BLOCKED by this rule'; }
+    else if (r.matched && !r.enabled) { cls='skipped'; icon='!'; label='DETECTED but rule disabled'; }
+    else { cls='passed'; icon='✓'; label='Rule not triggered'; }
+    return `<div class="rule-match ${cls}"><span class="rule-icon">${icon}</span><div><div style="font-weight:600">${r.rule.label}</div><div style="opacity:0.75;margin-top:2px">${label}</div></div></div>`;
+  }).join('');
+}
+
+function showDBResult(atk, breached) {
+  const el = document.getElementById('db-result');
+  if (!breached) {
+    el.innerHTML = `<div class="db-header">📊 Database Response</div><div class="db-empty" style="color:var(--green)">✓ WAF blocked request. No database query executed.<br><span style="color:var(--text-muted);font-size:10px">Attack neutralized before reaching application layer.</span></div>`;
+    return;
+  }
+  const {cols, rows, msg, exfil} = atk.dbResult;
+  const hdr = cols.map(c=>`<th>${c}</th>`).join('');
+  const rws = rows.map(r=>`<tr class="${exfil?'exfil':''}">${r.map(c=>`<td>${c}</td>`).join('')}</tr>`).join('');
+  el.innerHTML = `<div class="db-header">📊 Database Response <span style="color:${exfil?'var(--red)':'var(--amber)'};margin-left:8px">${exfil?'⚠ DATA EXFILTRATED':'⚠ ANOMALY DETECTED'}</span></div><table class="db-table"><thead><tr>${hdr}</tr></thead><tbody>${rws}</tbody></table><div style="font-size:10px;color:${exfil?'var(--red)':'var(--amber)'};margin-top:8px;padding-top:6px;border-top:1px solid var(--border)">${msg}</div>`;
+}
+
+function updateStats() {
+  document.getElementById('stat-attacks').textContent = state.attacks;
+  document.getElementById('stat-blocked').textContent = state.blocked;
+  document.getElementById('stat-breached').textContent = state.breached;
+  document.getElementById('stat-safe').textContent = state.safe;
+
+  const total = state.attacks || 1;
+  const risk = Math.round((state.breached / total) * 100);
+  const riskPct = Math.min(risk, 100);
+  document.getElementById('threat-pct').textContent = riskPct + '%';
+  const fill = document.getElementById('meter-fill');
+  fill.style.width = riskPct + '%';
+  fill.style.background = riskPct > 60 ? 'var(--red)' : riskPct > 30 ? 'var(--amber)' : 'var(--green)';
+
+  const ring = document.getElementById('score-ring');
+  const score = Math.max(0, 100 - riskPct);
+  ring.textContent = score;
+  ring.style.borderColor = score > 70 ? 'var(--green)' : score > 40 ? 'var(--amber)' : 'var(--red)';
+  ring.style.color = score > 70 ? 'var(--green)' : score > 40 ? 'var(--amber)' : 'var(--red)';
+}
+
+function runAttack() {
+  if (!state.selectedAttack) {
+    log('warn', '[WAR] No attack vector selected. Choose from left panel.');
+    return;
+  }
+  const atk = state.selectedAttack;
+  state.attacks++;
+  document.getElementById('query-input').className = 'query-input injected';
+  log('attack', `[ATK] Launching: ${atk.name}`);
+  log('query', `[SQL] ${atk.sqlGenerated}`);
+  setTopology('attacking', false);
+
+  setTimeout(() => {
+    const {blocked, results} = checkWAF(atk);
+    renderEval(results);
+
+    if (blocked) {
+      state.blocked++;
+      log('blocked', `[WAF] *** REQUEST BLOCKED *** — ${atk.name} neutralized`);
+      log('info', `[WAF] Rules triggered: ${results.filter(r=>r.matched&&r.enabled).map(r=>r.rule.label).join(', ')}`);
+      showDBResult(atk, false);
+      setTopology('attacking', true);
+      document.getElementById('query-input').className = 'query-input safe';
+    } else {
+      const wafActive = Object.values(state.wafEnabled).some(v=>v);
+      if (wafActive) {
+        log('warn', `[WAF] Partial detection — rules enabled but payload evaded. Review configuration.`);
+      } else {
+        log('warn', '[WAF] No WAF rules active — request passed unchecked');
+      }
+      state.breached++;
+      log('attack', `[BRK] *** BREACH *** — Payload reached database`);
+      log('attack', `[DB]  ${atk.dbResult.msg}`);
+      showDBResult(atk, true);
+      setTopology('attacking', false);
+      document.getElementById('query-input').className = 'query-input injected';
+    }
+
+    updateStats();
+  }, 600);
+}
+
+function runDefend() {
+  if (!state.selectedAttack) {
+    log('warn', '[WAR] No attack vector selected.');
+    return;
+  }
+  // Enable all relevant WAF rules for this attack
+  const atk = state.selectedAttack;
+  atk.wafRules.forEach(id => { state.wafEnabled[id] = true; });
+  renderWAFRules();
+  log('success', '[DEF] Recommended WAF rules automatically enabled for this vector');
+  log('info', '[DEF] Retrying request through hardened WAF...');
+  setTimeout(() => runAttack(), 400);
+}
+
+function clearAll() {
+  document.getElementById('terminal').innerHTML = `<div class="log-entry"><span class="log-time">${getTime()}</span><span class="log-msg system">[SYS] Terminal cleared. Range reset.</span></div>`;
+  document.getElementById('db-result').innerHTML = '<div class="db-header">📊 Database Response</div><div class="db-empty">No query executed yet.</div>';
+  document.getElementById('anatomy-box').innerHTML = '<span style="color:var(--text-muted)">Select an attack to dissect payload...</span>';
+  document.getElementById('rule-eval').innerHTML = '';
+  document.getElementById('query-input').value = '';
+  document.getElementById('query-input').className = 'query-input';
+  state.attacks = 0; state.blocked = 0; state.breached = 0; state.safe = 0;
+  state.selectedAttack = null;
+  WAF_RULES.forEach(r => state.wafEnabled[r.id] = false);
+  renderAttacks();
+  renderWAFRules();
+  updateStats();
+  setTopology('idle');
+}
+
+init();
+</script>
+</body>
+</html>
